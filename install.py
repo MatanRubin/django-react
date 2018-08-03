@@ -44,15 +44,7 @@ commands = [
 
 
 def extract_command_string(commands_list):
-    string_command = ''
+    return ' && '.join(commands_list)
 
-    for index in range(len(commands_list)):
-        command = commands_list[index]
-        if index < len(commands_list) - 1:
-            string_command += command + ' && '
-        else:
-            string_command += command
-
-    return string_command
 
 call(extract_command_string(commands), cwd=dir_path, shell=True)
