@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
-
+import json
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
 from django.utils.decorators import method_decorator
+from django.utils.encoding import force_bytes, force_text
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from rest_framework import generics, permissions
 from rest_framework.status import HTTP_400_BAD_REQUEST, HTTP_200_OK
-
-from backend.accounts.serializers import UserSerializer, CredentialsSerializer, UserProfileSerializer
+from backend.accounts.serializers import UserSerializer, CredentialsSerializer, UserProfileSerializer, \
+    RequestResetPasswordSerializer, ResetPasswordSerializer
 from backend.accounts.validations import Validations
 from django_react import settings
 from rest_framework.response import Response
@@ -28,7 +29,7 @@ class SignUp(generics.CreateAPIView):
     """
     Register a new user
     """
-    permission_classes = (permissions.AllowAny, )
+    permission_classes = (permissions.IsAdminUser,)
     serializer_class = UserSerializer
 
     def post(self, request, *args, **kwargs):
@@ -55,7 +56,6 @@ class SignUp(generics.CreateAPIView):
 
 
 def save_user(request, created_user, password):
-
     # set password safely
     created_user.set_password(password)
     created_user.save()
@@ -82,7 +82,7 @@ class Login(generics.CreateAPIView):
     """
     Authenticate
     """
-    permission_classes = (permissions.AllowAny, )
+    permission_classes = (permissions.AllowAny,)
     serializer_class = CredentialsSerializer
 
     def post(self, request, *args, **kwargs):
@@ -108,6 +108,44 @@ class LogOut(generics.RetrieveAPIView):
             logout(self.request)
             return redirect(settings.LOGOUT_REDIRECT_URL)
 
+
+class RequestResetPassword(generics.CreateAPIView):
+    serializer_class = RequestResetPasswordSerializer
+    queryset = User
+
+    def post(self, request, *args, **kwargs):
+        email = request.data.get('email')
+        try:
+            User.objects.get(email=email)
+            uidb64 = urlsafe_base64_encode(force_bytes(request.user.pk)).decode()
+            token = default_token_generator.make_token(request.user)
+            j = json.dumps({"responseText": Constants.CHANGE_PASSWORD_REQUEST, "uidb64": uidb64, "token": token})
+            return Response(j, status=200)
+
+        except User.DoesNotExist:
+            return Response(Constants.ERROR_USER_NOT_FOUND)
+
+
+class ResetPassword(generics.CreateAPIView):
+    serializer_class = ResetPasswordSerializer
+    permission_classes = (permissions.AllowAny,)
+
+    def post(self, request, *args, **kwargs):
+        uidb64 = kwargs['uidb64']
+        token = kwargs['token']
+        uid = force_text(urlsafe_base64_decode(uidb64))
+        user = User.objects.get(pk=uid)
+        is_valid = default_token_generator.check_token(user, token)
+        new_password = request.data.get('password')
+
+        if user and new_password and len(new_password) > 0 and is_valid:
+            user.set_password(new_password)
+            user.save()
+            user = authenticate(username=user.email, password=new_password)
+            auth_login(request, user)
+            return Response(Constants.LOGIN_SUCCESS, status=200)
+        else:
+            return HttpResponse(Constants.BAD_REQUEST, status=400)
 
 # TODO: register staff user endpoint (only permitted by superuser)
 # TODO: register superuser endpoint (only permitted by superuser)
